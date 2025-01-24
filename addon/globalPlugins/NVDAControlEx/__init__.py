@@ -17,7 +17,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		self.h_pipe = ctypes.windll.kernel32.CreateNamedPipeW(
 			self.pipe_name,
 			0x00000003,
-			0x00000000,
+			0x00000004 | 0x00000002 | 0x00000000,
 			1,
 			100000,
 			100000,
