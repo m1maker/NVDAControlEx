@@ -27,10 +27,10 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			None
 		)
 
-		if self.h_pipe == ctypes.windll.kernel32.INVALID_HANDLE_VALUE:
+		if self.h_pipe == 0:
 			return None
 
-		Thread t(target = self.read_task)
+		t = Thread(target = self.read_task)
 		t.start()
 
 	def __del__(self):
