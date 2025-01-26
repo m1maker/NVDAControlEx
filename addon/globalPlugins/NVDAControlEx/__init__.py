@@ -1,122 +1,131 @@
 import globalPluginHandler
 import speech
 import ctypes
-from threading import Thread
+from threading import Thread, Event
 import argparse
 import shlex
 
 class GlobalPlugin(globalPluginHandler.GlobalPlugin):
-    # Define commands and their expected arguments
-    pipeCommands = {
-        "speak": {
-            "function": speech.speakText,
-            "args": ["text"]
-        },
-        "speakSpelling": {
-            "function": speech.speakSpelling,
-            "args": ["text"]
-        },
-        "speakSsml": {
-            "function": speech.speakSsml,
-            "args": ["ssml"]
-        },
-        "pauseSpeech": {
-            "function": speech.pauseSpeech,
-            "args": ["switch"]
-        },
-        "cancelSpeech": {
-            "function": speech.cancelSpeech,
-            "args": []
-        }
-    }
+	# Define commands and their expected arguments
+	pipeCommands = {
+		"speak": {
+			"function": speech.speak,
+			"args": ["text"]
+		},
+		"speakSpelling": {
+			"function": speech.speakSpelling,
+			"args": ["text"]
+		},
+		"speakSsml": {
+			"function": speech.speakSsml,
+			"args": ["ssml"]
+		},
+		"pauseSpeech": {
+			"function": speech.pauseSpeech,
+			"args": ["switch"]
+		},
+		"cancelSpeech": {
+			"function": speech.cancelSpeech,
+			"args": []
+		}
+	}
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.pipe_name = r'\\.\pipe\NVDAControlPipe'
-        self.h_pipe = ctypes.windll.kernel32.CreateNamedPipeW(
-            self.pipe_name,
-            0x00000003,  # PIPE_ACCESS_DUPLEX
-            0x00000004 | 0x00000002 | 0x00000000,  # PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT
-            1,  # PIPE_UNLIMITED_INSTANCES
-            100000,  # Out buffer size
-            100000,  # In buffer size
-            0,  # Default timeout
-            None  # Security attributes
-        )
+	def __init__(self, *args, **kwargs):
+		super().__init__(*args, **kwargs)
+		self.pipe_name = r'\\.\pipe\NVDAControlPipe'
+		self.h_pipe = ctypes.windll.kernel32.CreateNamedPipeW(
+			self.pipe_name,
+			0x00000003,  # PIPE_ACCESS_DUPLEX
+			0x00000004 | 0x00000002 | 0x00000000,  # PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT
+			1,  # PIPE_UNLIMITED_INSTANCES
+			100000,  # Out buffer size
+			100000,  # In buffer size
+			0,  # Default timeout
+			None  # Security attributes
+		)
 
-        if self.h_pipe == 0:
-            return None
+		if self.h_pipe == -1:  # INVALID_HANDLE_VALUE
+			raise ctypes.WinError()
 
-        # Start a thread to listen for commands
-        t = Thread(target=self.read_task)
-        t.start()
+		self.stop_event = Event()
+		# Start a thread to listen for commands
+		self.thread = Thread(target=self.read_task)
+		self.thread.start()
 
-    def __del__(self):
-        if self.h_pipe:
-            ctypes.windll.kernel32.CloseHandle(self.h_pipe)
-            self.h_pipe = None
+	def __del__(self):
+		self.stop_event.set()
+		if self.h_pipe and self.h_pipe != -1:
+			ctypes.windll.kernel32.CloseHandle(self.h_pipe)
+			self.h_pipe = None
+		if self.thread and self.thread.is_alive():
+			self.thread.join()
 
-    def read_task(self):
-        buffer_size = 1024
-        while True:
-            result = ctypes.windll.kernel32.ConnectNamedPipe(self.h_pipe, None)
-            if result == 0:
-                break
+	def read_task(self):
+		buffer_size = 1024
+		while not self.stop_event.is_set():
+			result = ctypes.windll.kernel32.ConnectNamedPipe(self.h_pipe, None)
+			if result == 0:
+				error = ctypes.get_last_error()
+				if error == 535:  # ERROR_PIPE_CONNECTED
+					pass
+				else:
+					raise Exception(f"NVDAControlInterfacePipeError: WinError {error}")
 
-            try:
-                while True:
-                    buffer = ctypes.create_string_buffer(buffer_size)
-                    bytes_read = ctypes.c_ulong(0)
-                    read_result = ctypes.windll.kernel32.ReadFile(
-                        self.h_pipe,
-                        buffer,
-                        buffer_size,
-                        ctypes.byref(bytes_read),
-                        None
-                    )
+			while not self.stop_event.is_set():
+				buffer = ctypes.create_string_buffer(buffer_size)
+				bytes_read = ctypes.c_ulong(0)
+				read_result = ctypes.windll.kernel32.ReadFile(
+					self.h_pipe,
+					buffer,
+					buffer_size,
+					ctypes.byref(bytes_read),
+					None
+				)
 
-                    if read_result == 0 or bytes_read.value == 0:
-                        break
+				if read_result == 0 or bytes_read.value == 0:
+					pass
 
-                    received_data = buffer.value.decode('utf-8')
-                    self.process_command(received_data)
+				received_data = buffer.value.decode('utf-8')
+				self.process_command(received_data)
 
-            finally:
-                ctypes.windll.kernel32.DisconnectNamedPipe(self.h_pipe)
+			ctypes.windll.kernel32.DisconnectNamedPipe(self.h_pipe)
 
-    def process_command(self, command_str):
-        """
-        Parse and execute a command received from the named pipe.
-        """
-        try:
-            # Split the command into parts
-            parts = shlex.split(command_str)
-            if not parts:
-                return
+	def process_command(self, command_str):
+		"""
+		Parse and execute a command received from the named pipe.
+		"""
+		try:
+			# Split the command into parts
+			parts = shlex.split(command_str)
+			if not parts:
+				return
 
-            command = parts[0]
-            if command not in self.pipeCommands:
-                print(f"Unknown command: {command}")
-                return
+			command = parts[0]
+			if command not in self.pipeCommands:
+				raise Exception(f"Unknown command: {command}")
+				return
 
-            # Get the command details
-            command_info = self.pipeCommands[command]
-            func = command_info["function"]
-            expected_args = command_info["args"]
+			# Get the command details
+			command_info = self.pipeCommands[command]
+			func = command_info["function"]
+			expected_args = command_info["args"]
 
-            # Parse arguments
-            parser = argparse.ArgumentParser(description=f"Process {command} command.")
-            for arg in expected_args:
-                parser.add_argument(arg)
+			# Parse arguments
+			parser = argparse.ArgumentParser(description=f"Process {command} command.")
+			for arg in expected_args:
+				parser.add_argument(arg)
 
-            # Extract arguments from the command
-            args = parser.parse_args(parts[1:])
+			# Extract arguments from the command
+			try:
+				args = parser.parse_args(parts[1:])
+			except SystemExit:
+				return  # argparse exits on error, catch it to avoid stopping the plugin
 
-            # Call the function with the parsed arguments
-            if expected_args:
-                func(**vars(args))
-            else:
-                func()
+			# Call the function with the parsed arguments
+			if expected_args:
+				func(**vars(args))
+			else:
+				func()
 
-        except Exception as e:
-            print(f"Error processing command '{command_str}': {e}")
+		except Exception as e:
+			pass
