@@ -71,22 +71,21 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				else:
 					raise Exception(f"NVDAControlInterfacePipeError: WinError {error}")
 
-			while not self.stop_event.is_set():
-				buffer = ctypes.create_string_buffer(buffer_size)
-				bytes_read = ctypes.c_ulong(0)
-				read_result = ctypes.windll.kernel32.ReadFile(
-					self.h_pipe,
-					buffer,
-					buffer_size,
-					ctypes.byref(bytes_read),
-					None
-				)
+			buffer = ctypes.create_string_buffer(buffer_size)
+			bytes_read = ctypes.c_ulong(0)
+			read_result = ctypes.windll.kernel32.ReadFile(
+				self.h_pipe,
+				buffer,
+				buffer_size,
+				ctypes.byref(bytes_read),
+				None
+			)
 
-				if read_result == 0 or bytes_read.value == 0:
-					pass
+			if read_result == 0 or bytes_read.value == 0:
+				pass
 
-				received_data = buffer.value.decode('utf-8')
-				self.process_command(received_data)
+			received_data = buffer.value.decode('utf-8')
+			self.process_command(received_data)
 
 			ctypes.windll.kernel32.DisconnectNamedPipe(self.h_pipe)
 
