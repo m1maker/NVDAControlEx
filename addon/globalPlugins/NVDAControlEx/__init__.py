@@ -38,7 +38,6 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			"function": lambda: None,
 			"args": []
 		}
-
 	}
 
 	def __init__(self, *args, **kwargs):
@@ -74,31 +73,35 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def read_task(self):
 		buffer_size = 1024
 		while not self.stop_event.is_set():
-			result = ctypes.windll.kernel32.ConnectNamedPipe(self.h_pipe, None)
-			if result == 0:
-				error = ctypes.get_last_error()
-				if error == 535:  # ERROR_PIPE_CONNECTED
-					pass
-				else:
-					raise Exception(f"NVDAControlInterfacePipeError: WinError {error}")
+			try:
+				result = ctypes.windll.kernel32.ConnectNamedPipe(self.h_pipe, None)
+				if result == 0:
+					error = ctypes.get_last_error()
+					if error == 535:  # ERROR_PIPE_CONNECTED
+						pass
+					else:
+						raise Exception(f"NVDAControlInterfacePipeError: WinError {error}")
 
-			buffer = ctypes.create_string_buffer(buffer_size)
-			bytes_read = ctypes.c_ulong(0)
-			read_result = ctypes.windll.kernel32.ReadFile(
-				self.h_pipe,
-				buffer,
-				buffer_size,
-				ctypes.byref(bytes_read),
-				None
-			)
+				buffer = ctypes.create_string_buffer(buffer_size)
+				bytes_read = ctypes.c_ulong(0)
+				read_result = ctypes.windll.kernel32.ReadFile(
+					self.h_pipe,
+					buffer,
+					buffer_size,
+					ctypes.byref(bytes_read),
+					None
+				)
 
-			if read_result == 0 or bytes_read.value == 0:
-				pass
+				if read_result == 0 or bytes_read.value == 0:
+					continue
 
-			received_data = buffer.value.decode('utf-8')
-			self.process_command(received_data)
+				received_data = buffer.value.decode('utf-8')
+				self.process_command(received_data)
 
-			ctypes.windll.kernel32.DisconnectNamedPipe(self.h_pipe)
+				ctypes.windll.kernel32.DisconnectNamedPipe(self.h_pipe)
+			except Exception as e:
+				print(f"Error in read_task: {e}")
+				continue
 
 	def process_command(self, command_str):
 		"""
@@ -111,7 +114,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 		command = parts[0]
 		if command not in self.pipeCommands:
-			raise Exception(f"Unknown command: {command}")
+			print(f"Unknown command: {command}")
 			return
 
 		# Get the command details
@@ -122,7 +125,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		# Parse arguments
 		parser = argparse.ArgumentParser(description=f"Process {command} command.")
 		for arg in expected_args:
-			parser.add_argument(arg)
+			parser.add_argument(arg, type=self._arg_type_converter)
 
 		# Extract arguments from the command
 		try:
@@ -135,4 +138,18 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			func(**vars(args))
 		else:
 			func()
+
+	def _arg_type_converter(self, value):
+		"""
+		Convert the argument value to the appropriate type.
+		"""
+		if value.lower() in ('true', 'false'):
+			return value.lower() == 'true'
+		try:
+			return int(value)
+		except ValueError:
+			try:
+				return float(value)
+			except ValueError:
+				return value
 
