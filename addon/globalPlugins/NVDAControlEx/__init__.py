@@ -1,3 +1,4 @@
+import time
 import globalPluginHandler
 import speech
 from braille import BrailleHandler
@@ -48,8 +49,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			0x00000003,  # PIPE_ACCESS_DUPLEX
 			0x00000004 | 0x00000002 | 0x00000000,  # PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT
 			1,  # PIPE_UNLIMITED_INSTANCES
-			100000,  # Out buffer size
-			100000,  # In buffer size
+			64000,  # Out buffer size
+			64000,  # In buffer size
 			0,  # Default timeout
 			None  # Security attributes
 		)
@@ -71,7 +72,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			self.thread.join()
 
 	def read_task(self):
-		buffer_size = 1024
+		buffer_size = 64000
 		while not self.stop_event.is_set():
 			try:
 				result = ctypes.windll.kernel32.ConnectNamedPipe(self.h_pipe, None)
@@ -82,26 +83,29 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 					else:
 						raise Exception(f"NVDAControlInterfacePipeError: WinError {error}")
 
-				buffer = ctypes.create_string_buffer(buffer_size)
-				bytes_read = ctypes.c_ulong(0)
-				read_result = ctypes.windll.kernel32.ReadFile(
-					self.h_pipe,
-					buffer,
-					buffer_size,
-					ctypes.byref(bytes_read),
-					None
-				)
+				while True:
+					buffer = ctypes.create_string_buffer(buffer_size)
+					bytes_read = ctypes.c_ulong(0)
+					read_result = ctypes.windll.kernel32.ReadFile(
+						self.h_pipe,
+						buffer,
+						buffer_size,
+						ctypes.byref(bytes_read),
+						None
+					)
 
-				if read_result == 0 or bytes_read.value == 0:
-					continue
+					if read_result == 0 or bytes_read.value == 0:
+						break
 
-				received_data = buffer.value.decode('utf-8')
-				self.process_command(received_data)
+					received_data = buffer.value.decode('utf-8')
+					self.process_command(received_data)
+
+					time.sleep(0.005)
 
 				ctypes.windll.kernel32.DisconnectNamedPipe(self.h_pipe)
 			except Exception as e:
 				print(f"Error in read_task: {e}")
-				continue
+				pass
 
 	def process_command(self, command_str):
 		"""
