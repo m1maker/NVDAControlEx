@@ -1,11 +1,13 @@
 import globalPluginHandler
 import speech
+from braille import BrailleHandler
 import ctypes
 from threading import Thread, Event
 import argparse
 import shlex
 
 class GlobalPlugin(globalPluginHandler.GlobalPlugin):
+	brailleHandler = BrailleHandler()
 	# Define commands and their expected arguments
 	pipeCommands = {
 		"speak": {
@@ -27,7 +29,16 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		"cancelSpeech": {
 			"function": speech.cancelSpeech,
 			"args": []
+		},
+		"braille": {
+			"function": brailleHandler.message,
+			"args": ["text"]
+		},
+		"active": {
+			"function": lambda: None,
+			"args": []
 		}
+
 	}
 
 	def __init__(self, *args, **kwargs):
