@@ -104,38 +104,35 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		"""
 		Parse and execute a command received from the named pipe.
 		"""
+		# Split the command into parts
+		parts = shlex.split(command_str)
+		if not parts:
+			return
+
+		command = parts[0]
+		if command not in self.pipeCommands:
+			raise Exception(f"Unknown command: {command}")
+			return
+
+		# Get the command details
+		command_info = self.pipeCommands[command]
+		func = command_info["function"]
+		expected_args = command_info["args"]
+
+		# Parse arguments
+		parser = argparse.ArgumentParser(description=f"Process {command} command.")
+		for arg in expected_args:
+			parser.add_argument(arg)
+
+		# Extract arguments from the command
 		try:
-			# Split the command into parts
-			parts = shlex.split(command_str)
-			if not parts:
-				return
+			args = parser.parse_args(parts[1:])
+		except SystemExit:
+			return  # argparse exits on error, catch it to avoid stopping the plugin
 
-			command = parts[0]
-			if command not in self.pipeCommands:
-				raise Exception(f"Unknown command: {command}")
-				return
+		# Call the function with the parsed arguments
+		if expected_args:
+			func(**vars(args))
+		else:
+			func()
 
-			# Get the command details
-			command_info = self.pipeCommands[command]
-			func = command_info["function"]
-			expected_args = command_info["args"]
-
-			# Parse arguments
-			parser = argparse.ArgumentParser(description=f"Process {command} command.")
-			for arg in expected_args:
-				parser.add_argument(arg)
-
-			# Extract arguments from the command
-			try:
-				args = parser.parse_args(parts[1:])
-			except SystemExit:
-				return  # argparse exits on error, catch it to avoid stopping the plugin
-
-			# Call the function with the parsed arguments
-			if expected_args:
-				func(**vars(args))
-			else:
-				func()
-
-		except Exception as e:
-			pass
