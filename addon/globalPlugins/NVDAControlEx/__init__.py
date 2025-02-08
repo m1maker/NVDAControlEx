@@ -9,16 +9,16 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	# Define commands and their expected arguments
 	pipeCommands = {
 		"speak": {
-			"function": speech.speak,
-			"args": ["text"]
+			"function": speech.speakText,
+			"args": ["text", "reason", "symbolLevel"]
 		},
 		"speakSpelling": {
 			"function": speech.speakSpelling,
-			"args": ["text"]
+			"args": ["text", "locale", "useCharacterDescriptions"]
 		},
 		"speakSsml": {
 			"function": speech.speakSsml,
-			"args": ["ssml"]
+			"args": ["ssml", "markCallback", "symbolLevel"]
 		},
 		"pauseSpeech": {
 			"function": speech.pauseSpeech,
