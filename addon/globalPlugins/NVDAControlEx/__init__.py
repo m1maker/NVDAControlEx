@@ -52,8 +52,12 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 	def __del__(self):
 		self.stop_event.set()
+
+		# I don't know, but this is broken
+		"""
 		if self.thread and self.thread.is_alive():
-			self.thread.join()
+		self.thread.join()
+		"""
 
 	def connect_task(self):
 
@@ -105,7 +109,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 					break  # Go back to waiting for a new client
 
 				received_data = buffer.value.decode('utf-8')
-				self.process_command(received_data)
+				self.process_command(received_data, h_pipe)
 
 			except Exception as e:
 				print(f"Error in read_task: {e}")
@@ -118,7 +122,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			h_pipe = None
 
 
-	def process_command(self, command_str):
+	def process_command(self, command_str, h_pipe):
 		"""
 		Parse and execute a command received from the named pipe.
 		"""
@@ -130,6 +134,16 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		command = parts[0]
 		if command not in self.pipeCommands:
 			print(f"Unknown command: {command}")
+			return
+		elif command == "active":
+			buffer = "NVDA"
+			ctypes.windll.kernel32.WriteFile(
+				h_pipe,
+				buffer.encode('utf-8'),
+				len(buffer),
+				None,
+				None,
+			)
 			return
 
 		# Get the command details
