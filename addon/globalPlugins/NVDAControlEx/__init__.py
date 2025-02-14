@@ -73,15 +73,15 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 	def read_task(self):
 		buffer_size = 64000
-		result = ctypes.windll.kernel32.ConnectNamedPipe(self.h_pipe, None)
-		if result == 0:
-			error = ctypes.get_last_error()
-			if error == 535:  # ERROR_PIPE_CONNECTED
-				pass
-			else:
-				raise Exception(f"NVDAControlInterfacePipeError: WinError {error}")
 
 		while not self.stop_event.is_set():
+			# Wait for a new client to connect
+			result = ctypes.windll.kernel32.ConnectNamedPipe(self.h_pipe, None)
+			if result == 0:
+				error = ctypes.get_last_error()
+				if error == 535:  # ERROR_PIPE_CONNECTED
+					pass
+
 			try:
 				buffer = ctypes.create_string_buffer(buffer_size)
 				bytes_read = ctypes.c_ulong(0)
@@ -94,16 +94,18 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				)
 
 				if read_result == 0 or bytes_read.value == 0:
-					pass
+					# Client has disconnected
+					ctypes.windll.kernel32.DisconnectNamedPipe(self.h_pipe)
+					continue  # Go back to waiting for a new client
 
 				received_data = buffer.value.decode('utf-8')
 				self.process_command(received_data)
 
 			except Exception as e:
 				print(f"Error in read_task: {e}")
-				pass
+				ctypes.windll.kernel32.DisconnectNamedPipe(self.h_pipe)
+				continue  # Go back to waiting for a new client
 
-		ctypes.windll.kernel32.DisconnectNamedPipe(self.h_pipe)
 
 	def process_command(self, command_str):
 		"""
