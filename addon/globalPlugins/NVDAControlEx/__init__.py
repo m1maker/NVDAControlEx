@@ -44,49 +44,55 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def __init__(self, *args, **kwargs):
 		super().__init__(*args, **kwargs)
 		self.pipe_name = r'\\.\pipe\NVDAControlPipe'
-		self.h_pipe = ctypes.windll.kernel32.CreateNamedPipeW(
-			self.pipe_name,
-			0x00000003,  # PIPE_ACCESS_DUPLEX
-			0x00000004 | 0x00000002 | 0x00000000,  # PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT
-			255,  # PIPE_UNLIMITED_INSTANCES
-			64000,  # Out buffer size
-			64000,  # In buffer size
-			0,  # Default timeout
-			None  # Security attributes
-		)
-
-		if self.h_pipe == -1:  # INVALID_HANDLE_VALUE
-			raise ctypes.WinError()
 
 		self.stop_event = Event()
 		# Start a thread to listen for commands
-		self.thread = Thread(target=self.read_task)
+		self.thread = Thread(target=self.connect_task)
 		self.thread.start()
 
 	def __del__(self):
 		self.stop_event.set()
-		if self.h_pipe and self.h_pipe != -1:
-			ctypes.windll.kernel32.CloseHandle(self.h_pipe)
-			self.h_pipe = None
 		if self.thread and self.thread.is_alive():
 			self.thread.join()
 
-	def read_task(self):
-		buffer_size = 64000
+	def connect_task(self):
 
 		while not self.stop_event.is_set():
+			h_pipe = ctypes.windll.kernel32.CreateNamedPipeW(
+				self.pipe_name,
+				0x00000003,  # PIPE_ACCESS_DUPLEX
+				0x00000004 | 0x00000002 | 0x00000000,  # PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT
+				255,  # PIPE_UNLIMITED_INSTANCES
+				64000,  # Out buffer size
+				64000,  # In buffer size
+				0,  # Default timeout
+				None  # Security attributes
+			)
+
+			if h_pipe == -1:  # INVALID_HANDLE_VALUE
+				raise ctypes.WinError()
+
+
 			# Wait for a new client to connect
-			result = ctypes.windll.kernel32.ConnectNamedPipe(self.h_pipe, None)
+			result = ctypes.windll.kernel32.ConnectNamedPipe(h_pipe, None)
 			if result == 0:
 				error = ctypes.get_last_error()
 				if error == 535:  # ERROR_PIPE_CONNECTED
 					pass
 
+			client_thread = Thread(target=self.read_task, args=(h_pipe,))
+			client_thread.start()
+
+
+	def read_task(self, h_pipe):
+		buffer_size = 64000
+
+		while not self.stop_event.is_set():
 			try:
 				buffer = ctypes.create_string_buffer(buffer_size)
 				bytes_read = ctypes.c_ulong(0)
 				read_result = ctypes.windll.kernel32.ReadFile(
-					self.h_pipe,
+					h_pipe,
 					buffer,
 					buffer_size,
 					ctypes.byref(bytes_read),
@@ -95,16 +101,21 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 				if read_result == 0 or bytes_read.value == 0:
 					# Client has disconnected
-					ctypes.windll.kernel32.DisconnectNamedPipe(self.h_pipe)
-					continue  # Go back to waiting for a new client
+					ctypes.windll.kernel32.DisconnectNamedPipe(h_pipe)
+					break  # Go back to waiting for a new client
 
 				received_data = buffer.value.decode('utf-8')
 				self.process_command(received_data)
 
 			except Exception as e:
 				print(f"Error in read_task: {e}")
-				ctypes.windll.kernel32.DisconnectNamedPipe(self.h_pipe)
-				continue  # Go back to waiting for a new client
+				ctypes.windll.kernel32.DisconnectNamedPipe(h_pipe)
+				break  # Go back to waiting for a new client
+
+		if h_pipe and h_pipe != -1:
+			ctypes.windll.kernel32.DisconnectNamedPipe(h_pipe)
+			ctypes.windll.kernel32.CloseHandle(h_pipe)
+			h_pipe = None
 
 
 	def process_command(self, command_str):
