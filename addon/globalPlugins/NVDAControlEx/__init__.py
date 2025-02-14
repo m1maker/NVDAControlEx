@@ -48,7 +48,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			self.pipe_name,
 			0x00000003,  # PIPE_ACCESS_DUPLEX
 			0x00000004 | 0x00000002 | 0x00000000,  # PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT
-			1,  # PIPE_UNLIMITED_INSTANCES
+			255,  # PIPE_UNLIMITED_INSTANCES
 			64000,  # Out buffer size
 			64000,  # In buffer size
 			0,  # Default timeout
@@ -73,16 +73,16 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 	def read_task(self):
 		buffer_size = 64000
+		result = ctypes.windll.kernel32.ConnectNamedPipe(self.h_pipe, None)
+		if result == 0:
+			error = ctypes.get_last_error()
+			if error == 535:  # ERROR_PIPE_CONNECTED
+				pass
+			else:
+				raise Exception(f"NVDAControlInterfacePipeError: WinError {error}")
+
 		while not self.stop_event.is_set():
 			try:
-				result = ctypes.windll.kernel32.ConnectNamedPipe(self.h_pipe, None)
-				if result == 0:
-					error = ctypes.get_last_error()
-					if error == 535:  # ERROR_PIPE_CONNECTED
-						pass
-					else:
-						raise Exception(f"NVDAControlInterfacePipeError: WinError {error}")
-
 				buffer = ctypes.create_string_buffer(buffer_size)
 				bytes_read = ctypes.c_ulong(0)
 				read_result = ctypes.windll.kernel32.ReadFile(
@@ -99,10 +99,11 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				received_data = buffer.value.decode('utf-8')
 				self.process_command(received_data)
 
-				ctypes.windll.kernel32.DisconnectNamedPipe(self.h_pipe)
 			except Exception as e:
 				print(f"Error in read_task: {e}")
 				pass
+
+		ctypes.windll.kernel32.DisconnectNamedPipe(self.h_pipe)
 
 	def process_command(self, command_str):
 		"""
