@@ -7,6 +7,13 @@ from threading import Thread, Event
 import argparse
 import shlex
 
+# Constants
+PIPE_ACCESS_DUPLEX = 0x00000003
+PIPE_TYPE_MESSAGE = 0x00000004
+PIPE_READMODE_MESSAGE = 0x00000002
+PIPE_WAIT = 0x00000000
+PIPE_UNLIMITED_INSTANCES = 255
+
 class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	brailleHandler = BrailleHandler()
 	# Define commands and their expected arguments
@@ -64,9 +71,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		while not self.stop_event.is_set():
 			h_pipe = ctypes.windll.kernel32.CreateNamedPipeW(
 				self.pipe_name,
-				0x00000003,  # PIPE_ACCESS_DUPLEX
-				0x00000004 | 0x00000002 | 0x00000000,  # PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT
-				255,  # PIPE_UNLIMITED_INSTANCES
+				PIPE_ACCESS_DUPLEX,
+				PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT,
+				PIPE_UNLIMITED_INSTANCES,
 				64000,  # Out buffer size
 				64000,  # In buffer size
 				0,  # Default timeout
